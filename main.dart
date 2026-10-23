@@ -1,20 +1,15 @@
 import 'dart:io';
 import 'package:cunning_document_scanner/cunning_document_scanner.dart';
 import 'package:flutter/material.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 
-// ---- Google TEST ad unit IDs. Replace with your own AdMob IDs ONLY at release. ----
-const bannerId = 'ca-app-pub-3940256099942544/6300978111';
-const interId = 'ca-app-pub-3940256099942544/1033173712';
-const rewardId = 'ca-app-pub-3940256099942544/5224354917';
+// Diagnostic build: ads temporarily removed to isolate the startup crash.
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  Ads.init();
   runApp(const QuickScanApp());
 }
 
@@ -27,89 +22,6 @@ class QuickScanApp extends StatelessWidget {
         theme: ThemeData(colorSchemeSeed: const Color(0xFF1E6FFF), useMaterial3: true),
         home: const Home(),
       );
-}
-
-// ===================== ADS =====================
-class Ads {
-  static InterstitialAd? _i;
-  static RewardedAd? _r;
-  static int _actions = 0;
-  static DateTime _last = DateTime.now();
-
-  static void init() {
-    MobileAds.instance.initialize();
-    _loadI();
-    _loadR();
-  }
-
-  static void _loadI() => InterstitialAd.load(
-        adUnitId: interId,
-        request: const AdRequest(),
-        adLoadCallback: InterstitialAdLoadCallback(onAdLoaded: (a) => _i = a, onAdFailedToLoad: (_) => _i = null),
-      );
-
-  static void _loadR() => RewardedAd.load(
-        adUnitId: rewardId,
-        request: const AdRequest(),
-        rewardedAdLoadCallback: RewardedAdLoadCallback(onAdLoaded: (a) => _r = a, onAdFailedToLoad: (_) => _r = null),
-      );
-
-  /// Call after a completed task (e.g. a scan was saved). Shows 1 ad per 3 actions, min 2 min gap.
-  static void afterAction() {
-    _actions++;
-    final ad = _i;
-    if (_actions % 3 != 0 || ad == null || DateTime.now().difference(_last).inMinutes < 2) return;
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (a) { a.dispose(); _i = null; _loadI(); },
-      onAdFailedToShowFullScreenContent: (a, e) { a.dispose(); _i = null; _loadI(); },
-    );
-    ad.show();
-    _last = DateTime.now();
-  }
-
-  /// User-initiated rewarded ad. Returns false if no ad is ready.
-  static bool showRewarded(VoidCallback onReward) {
-    final ad = _r;
-    if (ad == null) { _loadR(); return false; }
-    ad.fullScreenContentCallback = FullScreenContentCallback(
-      onAdDismissedFullScreenContent: (a) { a.dispose(); _r = null; _loadR(); },
-      onAdFailedToShowFullScreenContent: (a, e) { a.dispose(); _r = null; _loadR(); },
-    );
-    ad.show(onUserEarnedReward: (_, __) => onReward());
-    return true;
-  }
-}
-
-class BannerBox extends StatefulWidget {
-  const BannerBox({super.key});
-  @override
-  State<BannerBox> createState() => _BannerBoxState();
-}
-
-class _BannerBoxState extends State<BannerBox> {
-  BannerAd? _ad;
-  bool _ok = false;
-  @override
-  void initState() {
-    super.initState();
-    _ad = BannerAd(
-      size: AdSize.banner,
-      adUnitId: bannerId,
-      request: const AdRequest(),
-      listener: BannerAdListener(
-        onAdLoaded: (_) => setState(() => _ok = true),
-        onAdFailedToLoad: (ad, _) => ad.dispose(),
-      ),
-    )..load();
-  }
-
-  @override
-  void dispose() { _ad?.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) => _ok
-      ? SafeArea(top: false, child: SizedBox(width: 320, height: 50, child: AdWidget(ad: _ad!)))
-      : const SizedBox.shrink();
 }
 
 // ===================== STORAGE =====================
@@ -180,7 +92,7 @@ class _HomeState extends State<Home> {
       final p = await CunningDocumentScanner.getPictures(noOfPages: 20, isGalleryImportAllowed: true);
       if (p == null || p.isEmpty || !mounted) return;
       final saved = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => AddScreen(paths: p)));
-      if (saved == true) { await load(); Ads.afterAction(); }
+      if (saved == true) { await load(); }
     } catch (e) {
       if (mounted) snack(context, 'Could not open scanner. Check camera permission.');
     }
@@ -235,7 +147,6 @@ class _HomeState extends State<Home> {
           icon: const Icon(Icons.document_scanner),
           label: const Text('Scan'),
         ),
-        bottomNavigationBar: const BannerBox(),
       );
 }
 
@@ -292,7 +203,6 @@ class _AddScreenState extends State<AddScreen> {
             ),
           ]),
         ),
-        bottomNavigationBar: const BannerBox(),
       );
 }
 
@@ -359,17 +269,15 @@ class DetailScreen extends StatelessWidget {
             Expanded(
               child: FilledButton.icon(
                 onPressed: () {
-                  final shown = Ads.showRewarded(() => _share(context, watermark: false));
-                  if (!shown) snack(context, 'Ad not ready yet. Try again in a moment.');
+                  _share(context, watermark: false);
                 },
                 icon: const Icon(Icons.play_circle_outline),
-                label: const Text('No watermark'),
+                label: const Text('Share without watermark'),
               ),
             ),
           ]),
         ),
       ]),
-      bottomNavigationBar: const BannerBox(),
     );
   }
 }
@@ -404,9 +312,8 @@ class SettingsScreen extends StatelessWidget {
               }
             },
           ),
-          const ListTile(leading: Icon(Icons.workspace_premium_outlined), title: Text('Premium'), subtitle: Text('Coming soon: no ads, no watermark')),
+          const ListTile(leading: Icon(Icons.workspace_premium_outlined), title: Text('Premium'), subtitle: Text('Coming soon')),
           const ListTile(leading: Icon(Icons.info_outline), title: Text('Version'), subtitle: Text('1.0.0')),
         ]),
-        bottomNavigationBar: const BannerBox(),
       );
 }
